@@ -2,6 +2,13 @@
 
 Všechny významné změny v aplikaci **GramoBudík** jsou zaznamenány v tomto souboru.
 
+## [1.0.1] - 2026-11-23
+
+### Opraveno a vylepšeno
+- Přidána žádost o `AudioFocusRequest` (`AUDIOFOCUS_GAIN_TRANSIENT` + `USAGE_ALARM`) v `PlaybackService` pro spolehlivé přehrávání při vypnuté obrazovce.
+- Vynucení 100 % hlasitosti `STREAM_ALARM` také přímo z popředí v `AlarmRingingActivity` (`onCreate` / `onResume`) kvůli omezením `CONTROL_AUDIO` v novějších verzích Androidu.
+- Přidáno oprávnění `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` a karta **Optimalizace baterie** v `MainActivity` (s doporučením pro Xiaomi / HyperOS).
+
 ## [1.0.0] - 2026-11-23
 
 ### Přidáno

@@ -1,6 +1,7 @@
 package cz.patrik.gramobudik
 
 import android.graphics.Color as AndroidColor
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -83,6 +84,7 @@ class AlarmRingingActivity : ComponentActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        forceMaxAlarmVolume()
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
@@ -118,6 +120,20 @@ class AlarmRingingActivity : ComponentActivity() {
                     },
                 )
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        forceMaxAlarmVolume()
+    }
+
+    private fun forceMaxAlarmVolume() {
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+        try {
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVol, 0)
+        } catch (_: SecurityException) {
         }
     }
 }

@@ -8,6 +8,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -172,6 +173,9 @@ private fun GramoBudikMainScreen() {
     var canScheduleExactAlarms by remember {
         mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context))
     }
+    var ignoringBatteryOptimizations by remember {
+        mutableStateOf(isIgnoringBatteryOptimizations(context))
+    }
 
     var showTimePickerDialog by remember { mutableStateOf(false) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
@@ -189,6 +193,7 @@ private fun GramoBudikMainScreen() {
         scheduledTriggerMillis = prefs.scheduledTriggerMillis
         hasNotificationPermission = hasNotificationPermission(context)
         canScheduleExactAlarms = AlarmScheduler.canScheduleExactAlarms(context)
+        ignoringBatteryOptimizations = isIgnoringBatteryOptimizations(context)
     }
 
     DisposableEffect(lifecycleOwner, context) {
@@ -299,6 +304,34 @@ private fun GramoBudikMainScreen() {
                             )
                             try {
                                 context.startActivity(intent)
+                            } catch (_: Exception) {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+
+            if (!ignoringBatteryOptimizations) {
+                PermissionCard(
+                    title = "Optimalizace baterie",
+                    description = "Aby systém neuspal budík při vypnuté obrazovce, povolte běh aplikace bez omezení baterie (na Xiaomi/HyperOS také Automatické spuštění).",
+                    buttonText = "Povolit bez omezení",
+                    onClick = {
+                        val requestIntent = Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}"),
+                        )
+                        try {
+                            context.startActivity(requestIntent)
+                        } catch (_: Exception) {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                             } catch (_: Exception) {
                                 context.startActivity(
                                     Intent(
@@ -1042,6 +1075,11 @@ private fun DrawScope.drawBeamedEighthNotes(
         close()
     }
     drawPath(path = beamPath, color = color)
+}
+
+private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    return powerManager.isIgnoringBatteryOptimizations(context.packageName)
 }
 
 private fun hasNotificationPermission(context: Context): Boolean {

@@ -9,12 +9,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -23,6 +25,7 @@ class PlaybackService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -183,15 +186,17 @@ class PlaybackService : Service() {
     private fun startMediaPlayer(songUri: String) {
         releaseMediaPlayer()
 
+        val alarmAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+
+        requestAlarmAudioFocus(alarmAttributes)
+
         val player = MediaPlayer()
         mediaPlayer = player
         try {
-            player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build(),
-            )
+            player.setAudioAttributes(alarmAttributes)
             player.setDataSource(applicationContext, Uri.parse(songUri))
             player.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
             player.setVolume(1.0f, 1.0f)
@@ -201,7 +206,8 @@ class PlaybackService : Service() {
                     stopPlaybackAndSelf()
                 }
             }
-            player.setOnErrorListener { erroredPlayer, _, _ ->
+            player.setOnErrorListener { erroredPlayer, what, extra ->
+                Log.e(LOG_TAG, "MediaPlayer error: what=$what extra=$extra uri=$songUri")
                 if (mediaPlayer === erroredPlayer) {
                     stopPlaybackAndSelf()
                 }
@@ -210,19 +216,42 @@ class PlaybackService : Service() {
             player.setOnPreparedListener { preparedPlayer ->
                 if (mediaPlayer === preparedPlayer) {
                     try {
+                        forceMaxAlarmVolume()
                         preparedPlayer.start()
-                    } catch (_: IllegalStateException) {
+                        Log.i(LOG_TAG, "MediaPlayer started for uri=$songUri")
+                    } catch (e: IllegalStateException) {
+                        Log.e(LOG_TAG, "Failed to start MediaPlayer", e)
                         stopPlaybackAndSelf()
                     }
                 }
             }
             player.prepareAsync()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to prepare MediaPlayer for uri=$songUri", e)
             stopPlaybackAndSelf()
         }
     }
 
+    private fun requestAlarmAudioFocus(alarmAttributes: AudioAttributes) {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(alarmAttributes)
+            .setAcceptsDelayedFocusGain(false)
+            .build()
+        audioFocusRequest = focusRequest
+        val result = audioManager.requestAudioFocus(focusRequest)
+        Log.i(LOG_TAG, "requestAudioFocus result=$result")
+    }
+
+    private fun abandonAlarmAudioFocus() {
+        val request = audioFocusRequest ?: return
+        audioFocusRequest = null
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.abandonAudioFocusRequest(request)
+    }
+
     private fun releaseMediaPlayer() {
+        abandonAlarmAudioFocus()
         val player = mediaPlayer ?: return
         mediaPlayer = null
         try {
@@ -266,6 +295,7 @@ class PlaybackService : Service() {
         private const val WAKE_LOCK_TAG = "gramobudik:playback"
         private const val WAKE_LOCK_TIMEOUT_MS = 60 * 60 * 1000L
         private const val DEFAULT_SONG_NAME = "Vybraná písnička"
+        private const val LOG_TAG = "GramoBudikPlayback"
 
         fun startPlayback(
             context: Context,
