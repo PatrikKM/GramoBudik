@@ -17,9 +17,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -412,6 +414,18 @@ private fun GramoBudikMainScreen() {
                         feedbackMessage = null
                         isFeedbackError = false
                     }
+                },
+            )
+
+            HyperOsGuideCard(
+                initiallyExpanded = isXiaomiFamilyDevice(),
+                onOpenAppSettingsClick = {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.parse("package:${context.packageName}"),
+                        ),
+                    )
                 },
             )
 
@@ -1075,6 +1089,131 @@ private fun DrawScope.drawBeamedEighthNotes(
         close()
     }
     drawPath(path = beamPath, color = color)
+}
+
+private fun isXiaomiFamilyDevice(): Boolean {
+    val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
+    val brand = Build.BRAND.lowercase(Locale.ROOT)
+    return manufacturer in setOf("xiaomi", "redmi", "poco") ||
+        brand in setOf("xiaomi", "redmi", "poco")
+}
+
+@Composable
+private fun HyperOsGuideCard(
+    initiallyExpanded: Boolean,
+    onOpenAppSettingsClick: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = VinylSurface),
+        border = BorderStroke(1.dp, VinylBorder),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "Návod pro HyperOS / Xiaomi",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = VinylGold,
+                )
+                Text(
+                    text = if (expanded) "Skrýt ▲" else "Zobrazit ▼",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = VinylTextSecondary,
+                )
+            }
+
+            Text(
+                text = "Aby se písnička spolehlivě spustila i při dlouho vypnuté obrazovce, nastavte v detailu aplikace tyto 4 položky:",
+                style = MaterialTheme.typography.bodySmall,
+                color = VinylTextSecondary,
+            )
+
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    HyperOsStepItem(
+                        title = "1. Automatické spuštění na pozadí",
+                        detail = "Nastavení → Aplikace → GramoBudík → Povolit automatické spuštění (zabrání zablokování budíku po vypnutí displeje).",
+                    )
+                    HyperOsStepItem(
+                        title = "2. Spořič baterie: Bez omezení",
+                        detail = "Nastavení → Aplikace → GramoBudík → Baterie → vyberte „Bez omezení“ (SmartPower neuspí přehrávání).",
+                    )
+                    HyperOsStepItem(
+                        title = "3. Další oprávnění (HyperOS)",
+                        detail = "Nastavení → Aplikace → GramoBudík → Další oprávnění → povolte „Zobrazovat na zamykací obrazovce“ a „Spouštět vyskakovací okna na pozadí“ (zobrazí velké tlačítko Zastavit).",
+                    )
+                    HyperOsStepItem(
+                        title = "4. Oznámení a přesné budíky",
+                        detail = "V aplikaci nebo v Nastavení povolte „Oznámení“ a „Alarmy a připomenutí“ (přesný budík).",
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    OutlinedButton(
+                        onClick = onOpenAppSettingsClick,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, VinylGold.copy(alpha = 0.65f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = VinylGold),
+                    ) {
+                        Text(
+                            text = "Otevřít nastavení aplikace",
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HyperOsStepItem(
+    title: String,
+    detail: String,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = VinylSurfaceElevated,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = VinylTextPrimary,
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = VinylTextSecondary,
+            )
+        }
+    }
 }
 
 private fun isIgnoringBatteryOptimizations(context: Context): Boolean {

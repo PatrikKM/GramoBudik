@@ -18,11 +18,26 @@ Jednoduchá Android aplikace (Kotlin + Jetpack Compose + Material 3) s ikonou gr
 - Po spuštění aplikace doporučujeme potvrdit karty oprávnění (pokud se zobrazí):
   - **Povolit oznámení** (`POST_NOTIFICATIONS`, Android 13+) – pro zobrazení oznámení s tlačítkem **Zastavit**.
   - **Povolit přesný budík** (`SCHEDULE_EXACT_ALARM`, Android 12+) – pro přesné spuštění v nastavený čas i při uspaném telefonu.
+  - **Optimalizace baterie – Bez omezení** (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) – aby systém proces budíku neuspal při vypnuté obrazovce.
+
+## Nastavení oprávnění v Xiaomi HyperOS / MIUI
+
+Telefony Xiaomi, Redmi a POCO s nadstavbou **HyperOS / MIUI** agresivně omezují aplikace na pozadí, když je vypnutý displej. Pro 100% spolehlivost nastavte v **Nastavení → Aplikace → Správa aplikací → GramoBudík** (přímo z aplikace přes tlačítko **Otevřít nastavení aplikace** v kartě *Návod pro HyperOS / Xiaomi*):
+
+1. **Automatické spuštění na pozadí (*Autostart*)** → **Zapnout**  
+   Zajišťuje, že systém nezablokuje `AlarmReceiver` a spuštění přehrávání po uzamčení telefonu.
+2. **Baterie / Spořič baterie** → vybrat **Bez omezení**  
+   Zabraňuje správci napájení (`SmartPower`) uspat foreground službu `PlaybackService` při déle vypnuté obrazovce.
+3. **Další oprávnění** → nastavit na **Vždy povolit**:
+   - **Zobrazovat na zamykací obrazovce** – umožní zobrazit celoobrazovkovou obrazovku budíku s velkým červeným tlačítkem **ZASTAVIT PÍSNIČKU** nad zamčeným displejem.
+   - **Spouštět vyskakovací okna na pozadí** – umožní systému otevřít obrazovku budíku i v případě, že telefon leží se zhasnutou obrazovkou.
+4. **Oznámení** → **Povolit** (včetně zamykací obrazovky) a **Alarmy a připomenutí** → **Povolit**  
+   Zaručí přesné buzení (`setAlarmClock`) i možnost zastavit písničku přímo z notifikační lišty.
 
 ## Instalace
 
 ### Z GitHub Releases (doporučeno)
-1. Otevřete sekci [Releases](https://github.com/PatrikKM/GramoBudik/releases) a stáhněte podepsaný soubor `GramoBudik-v1.0.0-signed.apk`.
+1. Otevřete sekci [Releases](https://github.com/PatrikKM/GramoBudik/releases) a stáhněte nejnovější podepsaný soubor `GramoBudik-v*-signed.apk`.
 2. Otevřete stažené APK v telefonu se systémem Android a povolte instalaci z neznámých zdrojů, pokud systém vyzve.
 
 ### Sestavení ze zdrojového kódu
