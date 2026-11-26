@@ -9,14 +9,27 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         val prefs = AlarmPreferences(context)
-        val songUri = prefs.songUri
-        val songName = prefs.songName
+        val alarmId = intent?.getIntExtra(EXTRA_ALARM_ID, -1) ?: -1
+        val alarm = if (alarmId > 0) {
+            prefs.getAlarm(alarmId)
+        } else {
+            prefs.getAlarms().firstOrNull { !it.songUri.isNullOrBlank() }
+        } ?: return
 
-        prefs.isScheduled = false
-        prefs.scheduledTriggerMillis = 0L
-
+        val songUri = alarm.songUri
         if (songUri.isNullOrBlank()) {
+            prefs.upsertAlarm(alarm.copy(isEnabled = false, nextTriggerMillis = 0L))
             return
+        }
+
+        if (alarm.repeatDays.isEmpty()) {
+            prefs.upsertAlarm(alarm.copy(isEnabled = false, nextTriggerMillis = 0L))
+        } else if (AlarmScheduler.canScheduleExactAlarms(context)) {
+            try {
+                AlarmScheduler.schedule(context, alarm)
+            } catch (_: SecurityException) {
+                prefs.upsertAlarm(alarm.copy(isEnabled = false, nextTriggerMillis = 0L))
+            }
         }
 
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -32,8 +45,9 @@ class AlarmReceiver : BroadcastReceiver() {
             PlaybackService.startPlayback(
                 context = context,
                 songUri = songUri,
-                songName = songName.takeUnless { it.isNullOrBlank() } ?: DEFAULT_SONG_NAME,
+                songName = alarm.songName.takeUnless { it.isNullOrBlank() } ?: DEFAULT_SONG_NAME,
                 openRingingUi = true,
+                vibrate = alarm.vibrate,
             )
         } catch (t: Throwable) {
             if (wakeLock.isHeld) {
@@ -43,9 +57,10 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private companion object {
-        const val WAKE_LOCK_TAG = "gramobudik:alarm_receiver"
-        const val WAKE_LOCK_TIMEOUT_MS = 10_000L
-        const val DEFAULT_SONG_NAME = "Vybraná písnička"
+    companion object {
+        const val EXTRA_ALARM_ID = "extra_alarm_id"
+        private const val WAKE_LOCK_TAG = "gramobudik:alarm_receiver"
+        private const val WAKE_LOCK_TIMEOUT_MS = 10_000L
+        private const val DEFAULT_SONG_NAME = "Vybraná písnička"
     }
 }

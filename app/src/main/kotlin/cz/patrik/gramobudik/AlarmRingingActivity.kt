@@ -91,7 +91,9 @@ class AlarmRingingActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
         )
 
-        val fallbackSongName = AlarmPreferences(this).songName?.takeIf { it.isNotBlank() } ?: "Vybraná písnička"
+        val fallbackSongName = PlaybackState.currentSongName.value.takeIf { it.isNotBlank() }
+            ?: AlarmPreferences(this).getAlarms().firstOrNull { !it.songName.isNullOrBlank() }?.songName
+            ?: "Vybraná písnička"
 
         setContent {
             GramoBudKTheme(darkTheme = true) {

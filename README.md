@@ -5,12 +5,15 @@ Jednoduchá Android aplikace (Kotlin + Jetpack Compose + Material 3) s ikonou gr
 ## Hlavní funkce
 
 - **Ikona gramofonové desky s notami** – vlastní adaptivní vektorová ikona (`ic_launcher_foreground.xml` / `ic_launcher_background.xml`) i notifikační ikona (`ic_notification_vinyl.xml`).
+- **Více nezávislých budíků** – přidejte libovolný počet budíků s vlastním časem, písničkou, zapnutím/vypnutím i smazáním.
+- **Plánování Pondělí – Neděle (`Po`–`Ne`)** – opakování v libovolné dny v týdnu nebo jednorázové spuštění, včetně automatického obnovení po restartu telefonu (`BootReceiver`).
+- **Volba vibrací** – možnost zapnout či vypnout vibrace pro každý budík zvlášť (`VIBRATE` / `USAGE_ALARM`).
 - **Výběr libovolné písničky z telefonu** – přes systémový dialog pro výběr zvuku (`audio/*`) s trvalým přístupovým oprávněním (`takePersistableUriPermission`).
-- **Přesný čas spuštění** – 24hodinový výběr času (`TimePicker`) naplánovaný přes `AlarmManager.setAlarmClock`, včetně automatického přeplánování po restartu telefonu (`BootReceiver`).
+- **Přesný čas spuštění** – 24hodinový výběr času (`TimePicker`) naplánovaný přes `AlarmManager.setAlarmClock`.
 - **Spuštění i při vypnutém displeji** – kombinace `setAlarmClock`, `PARTIAL_WAKE_LOCK`, foreground služby `PlaybackService` (`mediaPlayback`) a celoobrazovkové zamykací aktivity `AlarmRingingActivity` (`setShowWhenLocked`, `setTurnScreenOn`).
 - **Vždy 100 % hlasitost** – před spuštěním `MediaPlayer` (`USAGE_ALARM`) se hlasitost systémového proudu budíku (`AudioManager.STREAM_ALARM`) automaticky nastaví na maximum (`getStreamMaxVolume`).
 - **Snadné zastavení** – velké červené tlačítko **ZASTAVIT PÍSNIČKU** na zamykací obrazovce, v hlavní obrazovce aplikace i akce **Zastavit** v oznamovací liště.
-- **Okamžité vyzkoušení** – tlačítko **Vyzkoušet písničku (100 %)** pro ověření hlasitosti a přehrávání předem.
+- **Okamžité vyzkoušení** – tlačítko **Vyzkoušet** u každého budíku pro ověření hlasitosti, vibrací a přehrávání předem.
 
 ## Požadavky a oprávnění
 

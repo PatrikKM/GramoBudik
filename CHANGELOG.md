@@ -2,6 +2,13 @@
 
 Všechny významné změny v aplikaci **GramoBudík** jsou zaznamenány v tomto souboru.
 
+## [1.1.0] - 2026-11-26
+
+### Přidáno
+- **Více budíků:** možnost přidávat, upravovat, zapínat/vypínat, testovat a mazat libovolný počet nezávislých budíků (`AlarmItem`, unikátní `PendingIntent` pro každý budík).
+- **Plánování Pondělí – Neděle (`Po`–`Ne`):** výběr dnů opakování v týdnu s automatickým přeplánováním dalšího buzení (nebo jednorázové spuštění bez vybraných dnů).
+- **Volba vibrací:** přepínač vibrací pro každý budík (`VIBRATE`, `VibrationAttributes.USAGE_ALARM` v `PlaybackService`) s okamžitým vypnutím při zastavení budíku.
+
 ## [1.0.1] - 2026-11-23
 
 ### Opraveno a vylepšeno

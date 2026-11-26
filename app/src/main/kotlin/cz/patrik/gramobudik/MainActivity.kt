@@ -25,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -47,6 +49,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -56,8 +60,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -103,6 +105,16 @@ private val VinylSuccessBg = Color(0xFF152922)
 private val VinylTextPrimary = Color(0xFFF6F3FF)
 private val VinylTextSecondary = Color(0xFFB7B0C9)
 private val VinylTextMuted = Color(0xFF8C84A3)
+
+private val WeekDaysOrdered = listOf(
+    Calendar.MONDAY to "Po",
+    Calendar.TUESDAY to "Út",
+    Calendar.WEDNESDAY to "St",
+    Calendar.THURSDAY to "Čt",
+    Calendar.FRIDAY to "Pá",
+    Calendar.SATURDAY to "So",
+    Calendar.SUNDAY to "Ne",
+)
 
 private val VinylDarkColorScheme = darkColorScheme(
     primary = VinylCoral,
@@ -155,44 +167,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GramoBudikMainScreen() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val prefs = remember(context) { AlarmPreferences(context) }
 
-    var songUri by remember { mutableStateOf(prefs.songUri) }
-    var songName by remember { mutableStateOf(prefs.songName) }
-    var hour by remember { mutableIntStateOf(prefs.hour) }
-    var minute by remember { mutableIntStateOf(prefs.minute) }
-    var isScheduled by remember { mutableStateOf(prefs.isScheduled) }
-    var scheduledTriggerMillis by remember { mutableLongStateOf(prefs.scheduledTriggerMillis) }
+    var alarms by remember { mutableStateOf(prefs.getAlarms()) }
+    var hasNotificationPermission by remember { mutableStateOf(hasNotificationPermission(context)) }
+    var canScheduleExactAlarms by remember { mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context)) }
+    var ignoringBatteryOptimizations by remember { mutableStateOf(isIgnoringBatteryOptimizations(context)) }
 
-    var hasNotificationPermission by remember {
-        mutableStateOf(hasNotificationPermission(context))
-    }
-    var canScheduleExactAlarms by remember {
-        mutableStateOf(AlarmScheduler.canScheduleExactAlarms(context))
-    }
-    var ignoringBatteryOptimizations by remember {
-        mutableStateOf(isIgnoringBatteryOptimizations(context))
-    }
-
-    var showTimePickerDialog by remember { mutableStateOf(false) }
+    var editingAlarm by remember { mutableStateOf<AlarmItem?>(null) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
     var isFeedbackError by remember { mutableStateOf(false) }
 
     val isPlaying by PlaybackState.isPlaying.collectAsStateWithLifecycle()
     val currentSongName by PlaybackState.currentSongName.collectAsStateWithLifecycle()
 
-    fun syncFromPreferencesAndPermissions() {
-        songUri = prefs.songUri
-        songName = prefs.songName
-        hour = prefs.hour
-        minute = prefs.minute
-        isScheduled = prefs.isScheduled
-        scheduledTriggerMillis = prefs.scheduledTriggerMillis
+    fun reloadAlarmsAndPermissions() {
+        alarms = prefs.getAlarms()
         hasNotificationPermission = hasNotificationPermission(context)
         canScheduleExactAlarms = AlarmScheduler.canScheduleExactAlarms(context)
         ignoringBatteryOptimizations = isIgnoringBatteryOptimizations(context)
@@ -201,7 +195,7 @@ private fun GramoBudikMainScreen() {
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                syncFromPreferencesAndPermissions()
+                reloadAlarmsAndPermissions()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -211,36 +205,13 @@ private fun GramoBudikMainScreen() {
     }
 
     LaunchedEffect(isPlaying) {
-        isScheduled = prefs.isScheduled
-        scheduledTriggerMillis = prefs.scheduledTriggerMillis
+        alarms = prefs.getAlarms()
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         hasNotificationPermission = granted || hasNotificationPermission(context)
-    }
-
-    val pickSongLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                )
-            } catch (_: SecurityException) {
-            }
-            val displayName = resolveDisplayName(context, uri)
-            val uriString = uri.toString()
-            prefs.songUri = uriString
-            prefs.songName = displayName
-            songUri = uriString
-            songName = displayName
-            feedbackMessage = null
-            isFeedbackError = false
-        }
     }
 
     val needsNotificationPermission =
@@ -273,9 +244,7 @@ private fun GramoBudikMainScreen() {
 
             if (isPlaying) {
                 ActivePlaybackBanner(
-                    playingSongName = currentSongName.ifBlank {
-                        songName?.takeIf { it.isNotBlank() } ?: "Vybraná písnička"
-                    },
+                    playingSongName = currentSongName.ifBlank { "Vybraná písnička" },
                     onStopClick = { PlaybackService.stopPlayback(context) },
                 )
             }
@@ -347,75 +316,158 @@ private fun GramoBudikMainScreen() {
                 )
             }
 
-            SongSelectionCard(
-                songName = when {
-                    !songName.isNullOrBlank() -> songName!!
-                    !songUri.isNullOrBlank() -> "Vybraná písnička"
-                    else -> "Žádná písnička nevybrána"
-                },
-                hasSongSelected = !songUri.isNullOrBlank(),
-                onSelectSongClick = { pickSongLauncher.launch(arrayOf("audio/*")) },
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Budíky (${alarms.size})",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = VinylTextPrimary,
+                )
+                Button(
+                    onClick = {
+                        val defaultTemplate = alarms.lastOrNull()
+                        editingAlarm = AlarmItem(
+                            id = prefs.allocateAlarmId(),
+                            hour = 7,
+                            minute = 0,
+                            songUri = defaultTemplate?.songUri,
+                            songName = defaultTemplate?.songName,
+                            isEnabled = false,
+                            vibrate = true,
+                            repeatDays = emptySet(),
+                        )
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = VinylCoral,
+                        contentColor = Color.White,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        text = "+ Přidat budík",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
 
-            LaunchTimeCard(
-                hour = hour,
-                minute = minute,
-                isScheduled = isScheduled,
-                scheduledTriggerMillis = scheduledTriggerMillis,
-                onChangeTimeClick = { showTimePickerDialog = true },
-            )
+            if (!feedbackMessage.isNullOrBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isFeedbackError) Color(0xFF31181F) else VinylSuccessBg,
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (isFeedbackError) Color(0xFFFF6B6B).copy(alpha = 0.5f) else VinylSuccessGreen.copy(alpha = 0.4f),
+                    ),
+                ) {
+                    Text(
+                        text = feedbackMessage!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isFeedbackError) Color(0xFFFFB4AB) else VinylSuccessGreen,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    )
+                }
+            }
 
-            ControlsSection(
-                isScheduled = isScheduled,
-                feedbackMessage = feedbackMessage,
-                isFeedbackError = isFeedbackError,
-                onScheduleOrCancelClick = {
-                    if (isScheduled) {
-                        AlarmScheduler.cancel(context)
-                        isScheduled = false
-                        scheduledTriggerMillis = 0L
-                        feedbackMessage = "Naplánování bylo zrušeno."
-                        isFeedbackError = false
-                    } else {
-                        val currentExactAllowed = AlarmScheduler.canScheduleExactAlarms(context)
-                        canScheduleExactAlarms = currentExactAllowed
-                        when {
-                            songUri.isNullOrBlank() -> {
-                                feedbackMessage = "Nejprve vyberte písničku, která se má přehrát."
-                                isFeedbackError = true
-                            }
-                            !currentExactAllowed -> {
-                                feedbackMessage = "Chybí oprávnění pro přesný budík. Povolte ho prosím výše."
-                                isFeedbackError = true
-                            }
-                            else -> {
-                                val triggerMillis = AlarmScheduler.schedule(context, hour, minute)
-                                isScheduled = true
-                                scheduledTriggerMillis = triggerMillis
-                                feedbackMessage = formatScheduledStatus(triggerMillis, hour, minute)
+            if (alarms.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = VinylSurface),
+                    border = BorderStroke(1.dp, VinylBorder),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Zatím nemáte žádný budík",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = VinylTextPrimary,
+                        )
+                        Text(
+                            text = "Klepněte na „+ Přidat budík“ a vyberte čas, dny (Po–Ne), vibrace i písničku.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = VinylTextSecondary,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            } else {
+                alarms.forEach { alarm ->
+                    AlarmCard(
+                        alarm = alarm,
+                        onToggleEnabled = { enable ->
+                            if (enable) {
+                                val exactAllowed = AlarmScheduler.canScheduleExactAlarms(context)
+                                canScheduleExactAlarms = exactAllowed
+                                when {
+                                    alarm.songUri.isNullOrBlank() -> {
+                                        feedbackMessage = "Nejprve vyberte písničku pro budík ${formatTime(alarm.hour, alarm.minute)}."
+                                        isFeedbackError = true
+                                        editingAlarm = alarm
+                                    }
+                                    !exactAllowed -> {
+                                        feedbackMessage = "Chybí oprávnění pro přesný budík. Povolte ho prosím výše."
+                                        isFeedbackError = true
+                                    }
+                                    else -> {
+                                        val scheduled = AlarmScheduler.schedule(context, alarm)
+                                        alarms = prefs.getAlarms()
+                                        feedbackMessage = formatScheduledStatus(
+                                            scheduled.nextTriggerMillis,
+                                            scheduled.hour,
+                                            scheduled.minute,
+                                        )
+                                        isFeedbackError = false
+                                    }
+                                }
+                            } else {
+                                AlarmScheduler.cancel(context, alarm.id)
+                                alarms = prefs.getAlarms()
+                                feedbackMessage = "Budík ${formatTime(alarm.hour, alarm.minute)} byl vypnut."
                                 isFeedbackError = false
                             }
-                        }
-                    }
-                },
-                onTestPlaybackClick = {
-                    val uri = songUri
-                    if (uri.isNullOrBlank()) {
-                        feedbackMessage = "Nejprve vyberte písničku, kterou chcete vyzkoušet."
-                        isFeedbackError = true
-                    } else {
-                        val resolvedName = songName?.takeIf { it.isNotBlank() } ?: "Vybraná písnička"
-                        PlaybackService.startPlayback(
-                            context = context,
-                            songUri = uri,
-                            songName = resolvedName,
-                            openRingingUi = false,
-                        )
-                        feedbackMessage = null
-                        isFeedbackError = false
-                    }
-                },
-            )
+                        },
+                        onEditClick = { editingAlarm = alarm },
+                        onTestClick = {
+                            val uri = alarm.songUri
+                            if (uri.isNullOrBlank()) {
+                                feedbackMessage = "Nejprve vyberte písničku pro tento budík."
+                                isFeedbackError = true
+                                editingAlarm = alarm
+                            } else {
+                                PlaybackService.startPlayback(
+                                    context = context,
+                                    songUri = uri,
+                                    songName = alarm.songName?.takeIf { it.isNotBlank() } ?: "Vybraná písnička",
+                                    openRingingUi = false,
+                                    vibrate = alarm.vibrate,
+                                )
+                                feedbackMessage = null
+                                isFeedbackError = false
+                            }
+                        },
+                        onDeleteClick = {
+                            AlarmScheduler.cancel(context, alarm.id)
+                            prefs.deleteAlarm(alarm.id)
+                            alarms = prefs.getAlarms()
+                            feedbackMessage = "Budík ${formatTime(alarm.hour, alarm.minute)} byl smazán."
+                            isFeedbackError = false
+                        },
+                    )
+                }
+            }
 
             HyperOsGuideCard(
                 initiallyExpanded = isXiaomiFamilyDevice(),
@@ -443,76 +495,449 @@ private fun GramoBudikMainScreen() {
         }
     }
 
-    if (showTimePickerDialog) {
-        val timePickerState = rememberTimePickerState(
-            initialHour = hour,
-            initialMinute = minute,
-            is24Hour = true,
-        )
-        AlertDialog(
-            onDismissRequest = { showTimePickerDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
-            modifier = Modifier
-                .padding(horizontal = 20.dp)
-                .widthIn(min = 280.dp, max = 380.dp),
-            containerColor = VinylSurfaceElevated,
-            titleContentColor = VinylTextPrimary,
-            textContentColor = VinylTextPrimary,
-            title = {
-                Text(
-                    text = "Vybrat čas spuštění",
-                    fontWeight = FontWeight.Bold,
-                )
+    editingAlarm?.let { targetAlarm ->
+        AlarmEditorDialog(
+            initialAlarm = targetAlarm,
+            onDismiss = { editingAlarm = null },
+            onSave = { edited ->
+                val exactAllowed = AlarmScheduler.canScheduleExactAlarms(context)
+                canScheduleExactAlarms = exactAllowed
+                val canEnable = !edited.songUri.isNullOrBlank() && exactAllowed
+                if (canEnable) {
+                    val scheduled = AlarmScheduler.schedule(context, edited)
+                    alarms = prefs.getAlarms()
+                    feedbackMessage = formatScheduledStatus(
+                        scheduled.nextTriggerMillis,
+                        scheduled.hour,
+                        scheduled.minute,
+                    )
+                    isFeedbackError = false
+                } else {
+                    AlarmScheduler.cancel(context, edited.id)
+                    prefs.upsertAlarm(edited.copy(isEnabled = false, nextTriggerMillis = 0L))
+                    alarms = prefs.getAlarms()
+                    feedbackMessage = if (edited.songUri.isNullOrBlank()) {
+                        "Budík uložen, ale chybí písnička."
+                    } else {
+                        "Budík uložen. Pro aktivaci povolte přesný budík výše."
+                    }
+                    isFeedbackError = true
+                }
+                editingAlarm = null
             },
-            text = {
+        )
+    }
+}
+
+@Composable
+private fun AlarmCard(
+    alarm: AlarmItem,
+    onToggleEnabled: (Boolean) -> Unit,
+    onEditClick: () -> Unit,
+    onTestClick: () -> Unit,
+    onDeleteClick: () -> Unit,
+) {
+    val formattedTime = formatTime(alarm.hour, alarm.minute)
+    val songLabel = alarm.songName?.takeIf { it.isNotBlank() }
+        ?: if (!alarm.songUri.isNullOrBlank()) "Vybraná písnička" else "Nevybrána písnička"
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onEditClick() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = VinylSurface),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (alarm.isEnabled) VinylSuccessGreen.copy(alpha = 0.55f) else VinylBorder,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    ClockIcon(
+                        modifier = Modifier.size(22.dp),
+                        color = if (alarm.isEnabled) VinylSuccessGreen else VinylCoral,
+                    )
+                    Text(
+                        text = formattedTime,
+                        fontSize = 38.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (alarm.isEnabled) VinylTextPrimary else VinylTextSecondary,
+                        letterSpacing = 1.sp,
+                    )
+                }
+
+                Switch(
+                    checked = alarm.isEnabled,
+                    onCheckedChange = onToggleEnabled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = VinylSuccessGreen,
+                        uncheckedThumbColor = VinylTextSecondary,
+                        uncheckedTrackColor = VinylSurfaceElevated,
+                        uncheckedBorderColor = VinylBorder,
+                    ),
+                )
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = VinylSurfaceElevated,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Canvas(modifier = Modifier.size(16.dp)) {
+                        drawBeamedEighthNotes(
+                            topLeft = Offset.Zero,
+                            boxSize = size,
+                            color = if (!alarm.songUri.isNullOrBlank()) VinylGold else VinylTextMuted,
+                        )
+                    }
+                    Text(
+                        text = songLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (!alarm.songUri.isNullOrBlank()) VinylTextPrimary else VinylTextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = VinylSurfaceElevated,
+                    border = BorderStroke(1.dp, VinylBorder),
+                ) {
+                    Text(
+                        text = formatRepeatDaysSummary(alarm.repeatDays),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (alarm.repeatDays.isNotEmpty()) VinylGold else VinylTextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = VinylSurfaceElevated,
+                    border = BorderStroke(1.dp, VinylBorder),
+                ) {
+                    Text(
+                        text = if (alarm.vibrate) "Vibrace: Zap" else "Vibrace: Vyp",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (alarm.vibrate) VinylCream else VinylTextMuted,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
+            }
+
+            if (alarm.isEnabled && alarm.nextTriggerMillis > 0L) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = VinylSuccessBg,
+                    border = BorderStroke(1.dp, VinylSuccessGreen.copy(alpha = 0.4f)),
+                ) {
+                    Text(
+                        text = formatScheduledStatus(alarm.nextTriggerMillis, alarm.hour, alarm.minute),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = VinylSuccessGreen,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onEditClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, VinylBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = VinylSurfaceElevated,
+                        contentColor = VinylTextPrimary,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                ) {
+                    Text("Upravit", style = MaterialTheme.typography.labelLarge)
+                }
+                OutlinedButton(
+                    onClick = onTestClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, VinylGold.copy(alpha = 0.4f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = VinylSurfaceElevated,
+                        contentColor = VinylGold,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                ) {
+                    Text("Vyzkoušet", style = MaterialTheme.typography.labelLarge)
+                }
+                OutlinedButton(
+                    onClick = onDeleteClick,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFF6B6B).copy(alpha = 0.45f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color(0xFF28191D),
+                        contentColor = Color(0xFFFFB4AB),
+                    ),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text("Smazat", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AlarmEditorDialog(
+    initialAlarm: AlarmItem,
+    onDismiss: () -> Unit,
+    onSave: (AlarmItem) -> Unit,
+) {
+    val context = LocalContext.current
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialAlarm.hour,
+        initialMinute = initialAlarm.minute,
+        is24Hour = true,
+    )
+    var songUri by remember(initialAlarm.id) { mutableStateOf(initialAlarm.songUri) }
+    var songName by remember(initialAlarm.id) { mutableStateOf(initialAlarm.songName) }
+    var vibrate by remember(initialAlarm.id) { mutableStateOf(initialAlarm.vibrate) }
+    var repeatDays by remember(initialAlarm.id) { mutableStateOf(initialAlarm.repeatDays) }
+
+    val pickSongLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (_: SecurityException) {
+            }
+            songUri = uri.toString()
+            songName = resolveDisplayName(context, uri)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .widthIn(min = 300.dp, max = 420.dp),
+        containerColor = VinylSurfaceElevated,
+        titleContentColor = VinylTextPrimary,
+        textContentColor = VinylTextPrimary,
+        title = {
+            Text(
+                text = "Nastavení budíku",
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
                     TimePicker(state = timePickerState)
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val newHour = timePickerState.hour
-                        val newMinute = timePickerState.minute
-                        hour = newHour
-                        minute = newMinute
-                        prefs.hour = newHour
-                        prefs.minute = newMinute
 
-                        if (isScheduled) {
-                            if (AlarmScheduler.canScheduleExactAlarms(context) && !songUri.isNullOrBlank()) {
-                                val newTrigger = AlarmScheduler.schedule(context, newHour, newMinute)
-                                scheduledTriggerMillis = newTrigger
-                                feedbackMessage = formatScheduledStatus(newTrigger, newHour, newMinute)
-                                isFeedbackError = false
-                            } else {
-                                AlarmScheduler.cancel(context)
-                                isScheduled = false
-                                scheduledTriggerMillis = 0L
-                                feedbackMessage = null
-                                isFeedbackError = false
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Písnička",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = VinylTextPrimary,
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = VinylSurface,
+                    ) {
+                        Text(
+                            text = songName?.takeIf { it.isNotBlank() }
+                                ?: if (!songUri.isNullOrBlank()) "Vybraná písnička" else "Žádná písnička nevybrána",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (!songUri.isNullOrBlank()) VinylTextPrimary else VinylTextMuted,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { pickSongLauncher.launch(arrayOf("audio/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, VinylCoral.copy(alpha = 0.7f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = VinylCream),
+                    ) {
+                        Text("Vybrat písničku", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Opakování (Pondělí – Neděle)",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = VinylTextPrimary,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        WeekDaysOrdered.forEach { (dayConst, label) ->
+                            val selected = dayConst in repeatDays
+                            Surface(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clickable {
+                                        repeatDays = if (selected) {
+                                            repeatDays - dayConst
+                                        } else {
+                                            repeatDays + dayConst
+                                        }
+                                    },
+                                shape = CircleShape,
+                                color = if (selected) VinylCoral else VinylSurface,
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (selected) VinylCoral else VinylBorder,
+                                ),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selected) Color.White else VinylTextSecondary,
+                                    )
+                                }
                             }
                         }
-                        showTimePickerDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = VinylCoral,
-                        contentColor = Color.White,
-                    ),
+                    }
+                    Text(
+                        text = if (repeatDays.isEmpty()) {
+                            "Bez výběru dnů se budík spustí jednorázově."
+                        } else {
+                            "Opakuje se: ${formatRepeatDaysSummary(repeatDays)}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VinylTextSecondary,
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { vibrate = !vibrate },
+                    shape = RoundedCornerShape(12.dp),
+                    color = VinylSurface,
+                    border = BorderStroke(1.dp, VinylBorder),
                 ) {
-                    Text("Uložit", fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Vibrace při buzení",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = VinylTextPrimary,
+                            )
+                            Text(
+                                text = if (vibrate) "Telefon bude při přehrávání vibrovat" else "Pouze zvuk na 100 % hlasitosti",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VinylTextSecondary,
+                            )
+                        }
+                        Switch(
+                            checked = vibrate,
+                            onCheckedChange = { vibrate = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = VinylCoral,
+                                uncheckedThumbColor = VinylTextSecondary,
+                                uncheckedTrackColor = VinylSurfaceElevated,
+                                uncheckedBorderColor = VinylBorder,
+                            ),
+                        )
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePickerDialog = false }) {
-                    Text("Zrušit", color = VinylTextSecondary)
-                }
-            },
-        )
-    }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(
+                        initialAlarm.copy(
+                            hour = timePickerState.hour,
+                            minute = timePickerState.minute,
+                            songUri = songUri,
+                            songName = songName,
+                            vibrate = vibrate,
+                            repeatDays = repeatDays,
+                        ),
+                    )
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = VinylCoral,
+                    contentColor = Color.White,
+                ),
+            ) {
+                Text("Uložit a zapnout", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Zrušit", color = VinylTextSecondary)
+            }
+        },
+    )
 }
 
 @Composable
@@ -548,7 +973,6 @@ private fun VinylLogoBadge(modifier: Modifier = Modifier) {
         val discCenter = Offset(size.width * 0.44f, size.height * 0.56f)
         val discRadius = size.minDimension * 0.42f
 
-        // Subtle glow
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(VinylCoral.copy(alpha = 0.25f), Color.Transparent),
@@ -559,7 +983,6 @@ private fun VinylLogoBadge(modifier: Modifier = Modifier) {
             center = discCenter,
         )
 
-        // Charcoal vinyl disc
         drawCircle(
             color = Color(0xFF121216),
             radius = discRadius,
@@ -572,7 +995,6 @@ private fun VinylLogoBadge(modifier: Modifier = Modifier) {
             style = Stroke(width = 1.5.dp.toPx()),
         )
 
-        // Groove rings
         listOf(0.82f, 0.67f, 0.52f).forEach { factor ->
             drawCircle(
                 color = Color(0xFF2B2B35),
@@ -582,7 +1004,6 @@ private fun VinylLogoBadge(modifier: Modifier = Modifier) {
             )
         }
 
-        // Coral center label + cream ring + spindle hole
         drawCircle(
             color = VinylCoral,
             radius = discRadius * 0.35f,
@@ -600,7 +1021,6 @@ private fun VinylLogoBadge(modifier: Modifier = Modifier) {
             center = discCenter,
         )
 
-        // Musical note icon badge in upper-right overlapping the disc
         val badgeCenter = Offset(size.width * 0.77f, size.height * 0.27f)
         val badgeRadius = size.minDimension * 0.22f
         drawCircle(
@@ -738,275 +1158,15 @@ private fun PermissionCard(
 }
 
 @Composable
-private fun SongSelectionCard(
-    songName: String,
-    hasSongSelected: Boolean,
-    onSelectSongClick: () -> Unit,
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = VinylSurface),
-        border = BorderStroke(1.dp, VinylBorder),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Canvas(modifier = Modifier.size(22.dp)) {
-                    drawBeamedEighthNotes(
-                        topLeft = Offset.Zero,
-                        boxSize = size,
-                        color = if (hasSongSelected) VinylGold else VinylTextMuted,
-                    )
-                }
-                Text(
-                    text = "Písnička",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = VinylTextPrimary,
-                )
-            }
-
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = VinylSurfaceElevated,
-            ) {
-                Text(
-                    text = songName,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (hasSongSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (hasSongSelected) VinylTextPrimary else VinylTextMuted,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                )
-            }
-
-            OutlinedButton(
-                onClick = onSelectSongClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, VinylCoral.copy(alpha = 0.7f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = VinylCream),
-            ) {
-                Text(
-                    text = "Vybrat písničku",
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LaunchTimeCard(
-    hour: Int,
-    minute: Int,
-    isScheduled: Boolean,
-    scheduledTriggerMillis: Long,
-    onChangeTimeClick: () -> Unit,
-) {
-    val formattedTime = String.format(Locale.ROOT, "%02d:%02d", hour, minute)
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = VinylSurface),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isScheduled) VinylSuccessGreen.copy(alpha = 0.55f) else VinylBorder,
-        ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ClockIcon(
-                    modifier = Modifier.size(22.dp),
-                    color = if (isScheduled) VinylSuccessGreen else VinylCoral,
-                )
-                Text(
-                    text = "Čas spuštění",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = VinylTextPrimary,
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = formattedTime,
-                    fontSize = 48.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = VinylTextPrimary,
-                    letterSpacing = 1.sp,
-                )
-
-                OutlinedButton(
-                    onClick = onChangeTimeClick,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, VinylBorder),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = VinylSurfaceElevated,
-                        contentColor = VinylTextPrimary,
-                    ),
-                ) {
-                    Text(
-                        text = "Změnit čas",
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            }
-
-            if (isScheduled) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    color = VinylSuccessBg,
-                    border = BorderStroke(1.dp, VinylSuccessGreen.copy(alpha = 0.4f)),
-                ) {
-                    Text(
-                        text = formatScheduledStatus(scheduledTriggerMillis, hour, minute),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = VinylSuccessGreen,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ControlsSection(
-    isScheduled: Boolean,
-    feedbackMessage: String?,
-    isFeedbackError: Boolean,
-    onScheduleOrCancelClick: () -> Unit,
-    onTestPlaybackClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            text = "Ovládání",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = VinylTextPrimary,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-
-        if (isScheduled) {
-            OutlinedButton(
-                onClick = onScheduleOrCancelClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.5.dp, VinylCoral),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = Color(0xFF28191D),
-                    contentColor = Color(0xFFFFB4AB),
-                ),
-            ) {
-                Text(
-                    text = "Zrušit naplánování",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        } else {
-            Button(
-                onClick = onScheduleOrCancelClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = VinylCoral,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Text(
-                    text = "Naplánovat spuštění",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-
-        Button(
-            onClick = onTestPlaybackClick,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = VinylSurfaceElevated,
-                contentColor = VinylGold,
-            ),
-            border = BorderStroke(1.dp, VinylGold.copy(alpha = 0.35f)),
-        ) {
-            Text(
-                text = "Vyzkoušet písničku (100 %)",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        if (!feedbackMessage.isNullOrBlank()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = if (isFeedbackError) Color(0xFF31181F) else VinylSuccessBg,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (isFeedbackError) Color(0xFFFF6B6B).copy(alpha = 0.5f) else VinylSuccessGreen.copy(alpha = 0.4f),
-                ),
-            ) {
-                Text(
-                    text = feedbackMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isFeedbackError) Color(0xFFFFB4AB) else VinylSuccessGreen,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ClockIcon(
     modifier: Modifier = Modifier,
     color: Color,
 ) {
     Canvas(modifier = modifier) {
-        val stroke = 2.dp.toPx()
-        val radius = (size.minDimension - stroke) / 2f
+        val radius = size.minDimension * 0.43f
         val center = Offset(size.width / 2f, size.height / 2f)
+        val stroke = 2.dp.toPx()
+
         drawCircle(
             color = color,
             radius = radius,
@@ -1016,14 +1176,14 @@ private fun ClockIcon(
         drawLine(
             color = color,
             start = center,
-            end = Offset(center.x, center.y - radius * 0.55f),
+            end = Offset(center.x, center.y - radius * 0.56f),
             strokeWidth = stroke,
             cap = StrokeCap.Round,
         )
         drawLine(
             color = color,
             start = center,
-            end = Offset(center.x + radius * 0.42f, center.y + radius * 0.15f),
+            end = Offset(center.x + radius * 0.42f, center.y + radius * 0.16f),
             strokeWidth = stroke,
             cap = StrokeCap.Round,
         )
@@ -1257,8 +1417,30 @@ private fun resolveDisplayName(context: Context, uri: Uri): String {
         ?: "Vybraná písnička"
 }
 
+private fun formatTime(hour: Int, minute: Int): String {
+    return String.format(Locale.ROOT, "%02d:%02d", hour, minute)
+}
+
+private fun formatRepeatDaysSummary(repeatDays: Set<Int>): String {
+    if (repeatDays.isEmpty()) return "Jednorázově"
+    if (repeatDays.size == 7) return "Každý den"
+    val weekdays = setOf(
+        Calendar.MONDAY,
+        Calendar.TUESDAY,
+        Calendar.WEDNESDAY,
+        Calendar.THURSDAY,
+        Calendar.FRIDAY,
+    )
+    val weekend = setOf(Calendar.SATURDAY, Calendar.SUNDAY)
+    if (repeatDays == weekdays) return "Pracovní dny (Po–Pá)"
+    if (repeatDays == weekend) return "Víkend (So–Ne)"
+    return WeekDaysOrdered
+        .filter { (dayConst, _) -> dayConst in repeatDays }
+        .joinToString(", ") { (_, label) -> label }
+}
+
 private fun formatScheduledStatus(triggerMillis: Long, hour: Int, minute: Int): String {
-    val timeStr = String.format(Locale.ROOT, "%02d:%02d", hour, minute)
+    val timeStr = formatTime(hour, minute)
     if (triggerMillis <= 0L) {
         return "Naplánováno na $timeStr"
     }
@@ -1266,6 +1448,23 @@ private fun formatScheduledStatus(triggerMillis: Long, hour: Int, minute: Int): 
     val triggerCal = Calendar.getInstance().apply { timeInMillis = triggerMillis }
     val isToday = nowCal.get(Calendar.YEAR) == triggerCal.get(Calendar.YEAR) &&
         nowCal.get(Calendar.DAY_OF_YEAR) == triggerCal.get(Calendar.DAY_OF_YEAR)
-    val dayLabel = if (isToday) "dnes" else "zítra"
+    val tomorrowCal = (nowCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
+    val isTomorrow = tomorrowCal.get(Calendar.YEAR) == triggerCal.get(Calendar.YEAR) &&
+        tomorrowCal.get(Calendar.DAY_OF_YEAR) == triggerCal.get(Calendar.DAY_OF_YEAR)
+
+    val dayLabel = when {
+        isToday -> "dnes"
+        isTomorrow -> "zítra"
+        else -> when (triggerCal.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.MONDAY -> "v pondělí"
+            Calendar.TUESDAY -> "v úterý"
+            Calendar.WEDNESDAY -> "ve středu"
+            Calendar.THURSDAY -> "ve čtvrtek"
+            Calendar.FRIDAY -> "v pátek"
+            Calendar.SATURDAY -> "v sobotu"
+            Calendar.SUNDAY -> "v neděli"
+            else -> ""
+        }
+    }
     return "Naplánováno na $timeStr ($dayLabel)"
 }

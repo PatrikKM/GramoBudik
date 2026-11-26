@@ -16,6 +16,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.VibrationAttributes
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -26,6 +30,7 @@ class PlaybackService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var vibrator: Vibrator? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -41,8 +46,9 @@ class PlaybackService : Service() {
                     ?.takeIf { it.isNotBlank() }
                     ?: DEFAULT_SONG_NAME
                 val openRingingUi = intent.getBooleanExtra(EXTRA_OPEN_RINGING_UI, false)
+                val vibrate = intent.getBooleanExtra(EXTRA_VIBRATE, false)
 
-                startForegroundPlayback(songUri, songName, openRingingUi)
+                startForegroundPlayback(songUri, songName, openRingingUi, vibrate)
             }
 
             else -> {
@@ -55,6 +61,7 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        stopVibration()
         releaseMediaPlayer()
         releaseWakeLock()
         PlaybackState.update(false, "")
@@ -65,6 +72,7 @@ class PlaybackService : Service() {
         songUri: String?,
         songName: String,
         openRingingUi: Boolean,
+        vibrate: Boolean,
     ) {
         createNotificationChannel()
         val notification = buildNotification(songName, openRingingUi)
@@ -88,6 +96,11 @@ class PlaybackService : Service() {
 
         acquireWakeLock()
         forceMaxAlarmVolume()
+        if (vibrate) {
+            startVibration()
+        } else {
+            stopVibration()
+        }
         startMediaPlayer(songUri)
     }
 
@@ -270,7 +283,49 @@ class PlaybackService : Service() {
         }
     }
 
+    private fun startVibration() {
+        val vib = vibrator ?: resolveVibrator().also { vibrator = it } ?: return
+        if (!vib.hasVibrator()) return
+        try {
+            val effect = VibrationEffect.createWaveform(longArrayOf(0L, 600L, 400L), 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val attrs = VibrationAttributes.Builder()
+                    .setUsage(VibrationAttributes.USAGE_ALARM)
+                    .build()
+                vib.vibrate(effect, attrs)
+            } else {
+                @Suppress("DEPRECATION")
+                val audioAttrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                @Suppress("DEPRECATION")
+                vib.vibrate(effect, audioAttrs)
+            }
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to start vibration", e)
+        }
+    }
+
+    private fun stopVibration() {
+        try {
+            vibrator?.cancel()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun resolveVibrator(): Vibrator? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            manager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
+
     private fun stopPlaybackAndSelf() {
+        stopVibration()
         releaseMediaPlayer()
         releaseWakeLock()
         PlaybackState.update(false, "")
@@ -284,6 +339,7 @@ class PlaybackService : Service() {
         const val EXTRA_SONG_URI = "extra_song_uri"
         const val EXTRA_SONG_NAME = "extra_song_name"
         const val EXTRA_OPEN_RINGING_UI = "extra_open_ringing_ui"
+        const val EXTRA_VIBRATE = "extra_vibrate"
 
         private const val CHANNEL_ID = "gramobudik_playback"
         private const val CHANNEL_NAME = "Přehrávání budíku"
@@ -302,6 +358,7 @@ class PlaybackService : Service() {
             songUri: String,
             songName: String,
             openRingingUi: Boolean = false,
+            vibrate: Boolean = false,
         ) {
             val appContext = context.applicationContext ?: context
             val intent = Intent(appContext, PlaybackService::class.java).apply {
@@ -309,6 +366,7 @@ class PlaybackService : Service() {
                 putExtra(EXTRA_SONG_URI, songUri)
                 putExtra(EXTRA_SONG_NAME, songName)
                 putExtra(EXTRA_OPEN_RINGING_UI, openRingingUi)
+                putExtra(EXTRA_VIBRATE, vibrate)
             }
             ContextCompat.startForegroundService(appContext, intent)
         }

@@ -10,18 +10,6 @@ class BootReceiver : BroadcastReceiver() {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) {
             return
         }
-
-        val prefs = AlarmPreferences(context)
-        if (prefs.isScheduled &&
-            !prefs.songUri.isNullOrBlank() &&
-            AlarmScheduler.canScheduleExactAlarms(context)
-        ) {
-            try {
-                AlarmScheduler.schedule(context, prefs.hour, prefs.minute)
-            } catch (_: SecurityException) {
-                prefs.isScheduled = false
-                prefs.scheduledTriggerMillis = 0L
-            }
-        }
+        AlarmScheduler.rescheduleAllEnabled(context)
     }
 }
